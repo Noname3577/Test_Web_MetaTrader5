@@ -21,8 +21,8 @@ class MT5DataViewer:
     
     def __init__(self, root):
         self.root = root
-        self.root.title("MetaTrader5 Trading Bot System")
-        self.root.geometry("1200x900")
+        self.root.title("MetaTrader5 Trading Bot System - Unified Dashboard")
+        self.root.geometry("1400x900")
         
         # สร้าง MT5 Handler
         self.mt5_handler = MT5Handler()
@@ -63,27 +63,17 @@ class MT5DataViewer:
         
         # แท็บ 1: MT5 Connection & Data
         self.tab_mt5 = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_mt5, text="MT5 Data")
+        self.notebook.add(self.tab_mt5, text="🔌 MT5 Data")
         self._create_mt5_tab()
         
-        # แท็บ 2: Trading Bot Control
-        self.tab_bot = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_bot, text="Trading Bot")
-        self._create_bot_tab()
+        # แท็บ 2: Trading Dashboard (รวม Bot + Chart + Orders)
+        self.tab_dashboard = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_dashboard, text="📊 Trading Dashboard")
+        self._create_dashboard_tab()
         
-        # แท็บ 3: Pending Tickets
-        self.tab_tickets = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_tickets, text="Pending Orders")
-        self._create_tickets_tab()
-        
-        # แท็บ 4: Live Chart (ใหม่!)
-        self.tab_chart = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_chart, text="📈 Live Chart")
-        self._create_chart_tab()
-        
-        # แท็บ 5: Risk & Stats
+        # แท็บ 3: Risk & Stats
         self.tab_stats = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_stats, text="Stats & Risk")
+        self.notebook.add(self.tab_stats, text="📈 Stats & Risk")
         self._create_stats_tab()
     
     def _create_mt5_tab(self):
@@ -93,138 +83,242 @@ class MT5DataViewer:
         self._create_symbol_frame(self.tab_mt5)
         self._create_data_frame(self.tab_mt5)
     
-    def _create_bot_tab(self):
-        """สร้างแท็บควบคุม Trading Bot"""
+    def _create_dashboard_tab(self):
+        """สร้างแท็บ Dashboard รวม Bot + Chart + Orders"""
+        # สร้าง PanedWindow สำหรับแบ่งพื้นที่
+        main_paned = ttk.PanedWindow(self.tab_dashboard, orient=tk.HORIZONTAL)
+        main_paned.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # ส่วนซ้าย: Bot Controls + Log (30%)
+        left_frame = ttk.Frame(main_paned, width=350)
+        main_paned.add(left_frame, weight=1)
+        
+        # ส่วนขวา: Chart + Orders (70%)
+        right_paned = ttk.PanedWindow(main_paned, orient=tk.VERTICAL)
+        main_paned.add(right_paned, weight=2)
+        
+        # === ส่วนซ้าย: Bot Controls ===
+        self._create_bot_control_panel(left_frame)
+        
+        # === ส่วนขวาบน: Live Chart (60%) ===
+        chart_frame = ttk.LabelFrame(right_paned, text="📈 Live Chart", padding=5)
+        right_paned.add(chart_frame, weight=3)
+        self._create_chart_panel(chart_frame)
+        
+        # === ส่วนขวาล่าง: Pending Orders (40%) ===
+        orders_frame = ttk.LabelFrame(right_paned, text="📋 Pending Orders", padding=5)
+        right_paned.add(orders_frame, weight=2)
+        self._create_orders_panel(orders_frame)
+    
+    def _create_bot_control_panel(self, parent):
+        """สร้างแผงควบคุม Bot"""
         # ส่วนควบคุมหลัก
-        control_frame = ttk.LabelFrame(self.tab_bot, text="การควบคุม Bot", padding=10)
-        control_frame.pack(fill="x", padx=10, pady=5)
+        control_frame = ttk.LabelFrame(parent, text="⚙️ การควบคุม Bot", padding=10)
+    def _create_bot_control_panel(self, parent):
+        """สร้างแผงควบคุม Bot"""
+        # ส่วนควบคุมหลัก
+        control_frame = ttk.LabelFrame(parent, text="⚙️ การควบคุม Bot", padding=10)
+        control_frame.pack(fill="x", padx=5, pady=5)
         
         # เลือกโหมด
         ttk.Label(control_frame, text="โหมด:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         mode_combo = ttk.Combobox(control_frame, textvariable=self.selected_mode, 
-                                  values=[m.value for m in ExecutionMode], state="readonly", width=20)
-        mode_combo.grid(row=0, column=1, sticky="w", padx=5, pady=5)
+                                  values=[m.value for m in ExecutionMode], state="readonly", width=18)
+        mode_combo.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
         
         # เลือกกลยุทธ์
         ttk.Label(control_frame, text="กลยุทธ์:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         strategy_combo = ttk.Combobox(control_frame, textvariable=self.selected_strategy,
-                                     values=[s.value for s in StrategyType], state="readonly", width=20)
-        strategy_combo.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+                                     values=[s.value for s in StrategyType], state="readonly", width=18)
+        strategy_combo.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
         
         # เลือกสัญลักษณ์
         ttk.Label(control_frame, text="สัญลักษณ์:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.bot_symbol_var = tk.StringVar(value="EURUSD")
-        symbol_entry = ttk.Entry(control_frame, textvariable=self.bot_symbol_var, width=22)
-        symbol_entry.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+        symbol_entry = ttk.Entry(control_frame, textvariable=self.bot_symbol_var, width=20)
+        symbol_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
+        
+        control_frame.columnconfigure(1, weight=1)
         
         # ปุ่มควบคุม
         btn_frame = ttk.Frame(control_frame)
         btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
         
-        self.start_bot_btn = ttk.Button(btn_frame, text="▶ เริ่ม Bot", 
-                                        command=self.start_bot, state="disabled")
-        self.start_bot_btn.pack(side="left", padx=5)
+        self.start_bot_btn = ttk.Button(btn_frame, text="▶ เริ่ม", 
+                                        command=self.start_bot, state="disabled", width=10)
+        self.start_bot_btn.pack(side="left", padx=3)
         
-        self.stop_bot_btn = ttk.Button(btn_frame, text="⏹ หยุด Bot",
-                                       command=self.stop_bot, state="disabled")
-        self.stop_bot_btn.pack(side="left", padx=5)
+        self.stop_bot_btn = ttk.Button(btn_frame, text="⏹ หยุด",
+                                       command=self.stop_bot, state="disabled", width=10)
+        self.stop_bot_btn.pack(side="left", padx=3)
         
-        self.scan_btn = ttk.Button(btn_frame, text="🔍 สแกนทันที",
-                                   command=self.manual_scan, state="disabled")
-        self.scan_btn.pack(side="left", padx=5)
+        self.scan_btn = ttk.Button(btn_frame, text="🔍 สแกน",
+                                   command=self.manual_scan, state="disabled", width=10)
+        self.scan_btn.pack(side="left", padx=3)
         
         # สถานะ Bot
-        status_frame = ttk.LabelFrame(self.tab_bot, text="สถานะ Bot", padding=10)
-        status_frame.pack(fill="x", padx=10, pady=5)
+        status_frame = ttk.LabelFrame(parent, text="📊 สถานะ", padding=10)
+        status_frame.pack(fill="x", padx=5, pady=5)
         
-        self.bot_status_label = ttk.Label(status_frame, text="สถานะ: ไม่ได้ทำงาน", 
-                                         foreground="gray")
+        self.bot_status_label = ttk.Label(status_frame, text="สถานะ: ปิด", 
+                                         foreground="gray", font=("Arial", 9, "bold"))
         self.bot_status_label.pack()
         
-        # Log
-        log_frame = ttk.LabelFrame(self.tab_bot, text="Log", padding=10)
-        log_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        # Quick Stats
+        quick_stats_frame = ttk.LabelFrame(parent, text="📈 Quick Stats", padding=10)
+        quick_stats_frame.pack(fill="x", padx=5, pady=5)
         
-        self.bot_log = scrolledtext.ScrolledText(log_frame, height=25, wrap=tk.WORD)
+        self.quick_stats_text = tk.Text(quick_stats_frame, height=8, wrap=tk.WORD, 
+                                        font=("Courier New", 9))
+        self.quick_stats_text.pack(fill="x")
+        self._update_quick_stats()
+        
+        # Log
+        log_frame = ttk.LabelFrame(parent, text="📝 Log", padding=5)
+        log_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        self.bot_log = scrolledtext.ScrolledText(log_frame, height=15, wrap=tk.WORD,
+                                                 font=("Courier New", 8))
         self.bot_log.pack(fill="both", expand=True)
     
-    def _create_tickets_tab(self):
-        """สร้างแท็บสำหรับยืนยันคำสั่งซื้อขาย (MANUAL_CONFIRM mode)"""
-        info_label = ttk.Label(self.tab_tickets, 
-                              text="ตั๋วคำสั่งที่รอการยืนยัน (สำหรับโหมด MANUAL_CONFIRM)",
-                              font=("Arial", 10, "bold"))
-        info_label.pack(pady=10)
+    def _create_chart_panel(self, parent):
+        """สร้างแผงกราฟ"""
+        # ส่วนควบคุมด้านบน
+        control_frame = ttk.Frame(parent)
+        control_frame.pack(fill="x", padx=5, pady=5)
+        
+        ttk.Label(control_frame, text="Symbol:").pack(side="left", padx=5)
+        self.chart_symbol_var = tk.StringVar(value="EURUSD")
+        symbol_entry = ttk.Entry(control_frame, textvariable=self.chart_symbol_var, width=12)
+        symbol_entry.pack(side="left", padx=5)
+        
+        # ซิงค์กับ bot symbol
+        ttk.Button(control_frame, text="⇄ ซิงค์", 
+                  command=self.sync_chart_symbol, width=8).pack(side="left", padx=2)
+        
+        ttk.Label(control_frame, text="Strategy:").pack(side="left", padx=5)
+        self.chart_strategy_var = tk.StringVar(value=StrategyType.MA_CROSSOVER.value)
+        strategy_combo = ttk.Combobox(control_frame, textvariable=self.chart_strategy_var,
+                                     values=[s.value for s in StrategyType], 
+                                     state="readonly", width=18)
+        strategy_combo.pack(side="left", padx=5)
+        
+        ttk.Button(control_frame, text="📊 อัปเดต", 
+                  command=self.update_chart_now, width=10).pack(side="left", padx=5)
+        
+        ttk.Checkbutton(control_frame, text="Auto (5s)", 
+                       variable=self.chart_auto_refresh,
+                       command=self.toggle_chart_refresh).pack(side="left", padx=5)
+        
+        # สถานะ
+        self.chart_status_label = ttk.Label(control_frame, text="", foreground="gray",
+                                           font=("Arial", 8))
+        self.chart_status_label.pack(side="left", padx=10)
+        
+        # พื้นที่สำหรับกราฟ
+        self.chart_container = ttk.Frame(parent)
+        self.chart_container.pack(fill="both", expand=True, padx=2, pady=2)
+    
+    def _create_orders_panel(self, parent):
+        """สร้างแผงแสดง Pending Orders"""
+        # คำอธิบาย
+        info_frame = ttk.Frame(parent)
+        info_frame.pack(fill="x", padx=5, pady=3)
+        
+        ttk.Label(info_frame, text="คำสั่งที่รอยืนยัน (โหมด MANUAL_CONFIRM)",
+                 font=("Arial", 9)).pack(side="left")
+        
+        # ปุ่มควบคุมด้านขวา
+        btn_frame = ttk.Frame(info_frame)
+        btn_frame.pack(side="right")
+        
+        ttk.Button(btn_frame, text="✅ อนุมัติ", command=self.approve_ticket,
+                  width=10).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text="❌ ปฏิเสธ", command=self.reject_ticket,
+                  width=10).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text="🔄 รีเฟรช", command=self.refresh_tickets,
+                  width=10).pack(side="left", padx=2)
         
         # Treeview สำหรับแสดงตั๋ว
-        tree_frame = ttk.Frame(self.tab_tickets)
-        tree_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        tree_frame = ttk.Frame(parent)
+        tree_frame.pack(fill="both", expand=True, padx=5, pady=3)
         
-        scrollbar = ttk.Scrollbar(tree_frame)
-        scrollbar.pack(side="right", fill="y")
+        # Scrollbar
+        scrollbar_y = ttk.Scrollbar(tree_frame, orient="vertical")
+        scrollbar_y.pack(side="right", fill="y")
         
-        self.tickets_tree = ttk.Treeview(tree_frame, yscrollcommand=scrollbar.set,
+        scrollbar_x = ttk.Scrollbar(tree_frame, orient="horizontal")
+        scrollbar_x.pack(side="bottom", fill="x")
+        
+        # Treeview
+        self.tickets_tree = ttk.Treeview(tree_frame, 
+                                        yscrollcommand=scrollbar_y.set,
+                                        xscrollcommand=scrollbar_x.set,
                                         columns=("ID", "Symbol", "Type", "Lot", "Entry", "SL", "TP", "Strategy"),
-                                        show="headings", height=15)
+                                        show="headings", height=8)
         
+        # Configure columns
         self.tickets_tree.heading("ID", text="Ticket ID")
         self.tickets_tree.heading("Symbol", text="Symbol")
         self.tickets_tree.heading("Type", text="Type")
         self.tickets_tree.heading("Lot", text="Lot")
         self.tickets_tree.heading("Entry", text="Entry")
-        self.tickets_tree.heading("SL", text="Stop Loss")
-        self.tickets_tree.heading("TP", text="Take Profit")
+        self.tickets_tree.heading("SL", text="SL")
+        self.tickets_tree.heading("TP", text="TP")
         self.tickets_tree.heading("Strategy", text="Strategy")
         
-        self.tickets_tree.column("ID", width=120)
-        self.tickets_tree.column("Symbol", width=80)
-        self.tickets_tree.column("Type", width=60)
-        self.tickets_tree.column("Lot", width=60)
-        self.tickets_tree.column("Entry", width=80)
-        self.tickets_tree.column("SL", width=80)
-        self.tickets_tree.column("TP", width=80)
-        self.tickets_tree.column("Strategy", width=150)
+        self.tickets_tree.column("ID", width=100, anchor="center")
+        self.tickets_tree.column("Symbol", width=70, anchor="center")
+        self.tickets_tree.column("Type", width=50, anchor="center")
+        self.tickets_tree.column("Lot", width=50, anchor="center")
+        self.tickets_tree.column("Entry", width=70, anchor="center")
+        self.tickets_tree.column("SL", width=70, anchor="center")
+        self.tickets_tree.column("TP", width=70, anchor="center")
+        self.tickets_tree.column("Strategy", width=120, anchor="w")
         
         self.tickets_tree.pack(side="left", fill="both", expand=True)
-        scrollbar.config(command=self.tickets_tree.yview)
         
-        # ปุ่มควบคุม
-        btn_frame = ttk.Frame(self.tab_tickets)
-        btn_frame.pack(fill="x", padx=10, pady=10)
+        scrollbar_y.config(command=self.tickets_tree.yview)
+        scrollbar_x.config(command=self.tickets_tree.xview)
+    
+    def sync_chart_symbol(self):
+        """ซิงค์สัญลักษณ์จาก Bot ไปหากราฟ"""
+        self.chart_symbol_var.set(self.bot_symbol_var.get())
+        self.update_chart_now()
+    
+    def _update_quick_stats(self):
+        """อัปเดตสถิติด่วน"""
+        if not self.risk_manager:
+            stats_text = """
+ไม่มีข้อมูล
+กรุณาเชื่อมต่อ MT5
+"""
+        else:
+            report = self.risk_manager.get_daily_report()
+            stats_text = f"""
+📊 สถิติวันนี้
+{'━' * 25}
+จำนวนไม้: {report['total_trades']}
+Win Rate: {report['win_rate']:.1f}%
+กำไรสุทธิ: ${report['net_profit']:.2f}
+
+Kill Switch: {'🔴 ON' if self.risk_manager.kill_switch_active else '🟢 OFF'}
+"""
         
-        ttk.Button(btn_frame, text="✅ อนุมัติ", command=self.approve_ticket).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="❌ ปฏิเสธ", command=self.reject_ticket).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="🔄 รีเฟรช", command=self.refresh_tickets).pack(side="left", padx=5)
+        self.quick_stats_text.delete(1.0, tk.END)
+        self.quick_stats_text.insert(1.0, stats_text)
+        
+        # Schedule next update
+        if self.mt5_handler.is_connected:
+            self.root.after(10000, self._update_quick_stats)
+    
+    def _create_tickets_tab(self):
+        """สร้างแท็บสำหรับยืนยันคำสั่งซื้อขาย (MANUAL_CONFIRM mode) - เก็บไว้เพื่อ backward compatibility"""
+        pass
     
     def _create_chart_tab(self):
-        """สร้างแท็บแสดงกราฟ Real-time"""
-        # ส่วนควบคุม
-        control_frame = ttk.Frame(self.tab_chart)
-        control_frame.pack(fill="x", padx=10, pady=5)
-        
-        ttk.Label(control_frame, text="สัญลักษณ์:").pack(side="left", padx=5)
-        self.chart_symbol_var = tk.StringVar(value="EURUSD")
-        ttk.Entry(control_frame, textvariable=self.chart_symbol_var, width=15).pack(side="left", padx=5)
-        
-        ttk.Label(control_frame, text="กลยุทธ์:").pack(side="left", padx=5)
-        self.chart_strategy_var = tk.StringVar(value=StrategyType.MA_CROSSOVER.value)
-        ttk.Combobox(control_frame, textvariable=self.chart_strategy_var,
-                    values=[s.value for s in StrategyType], 
-                    state="readonly", width=20).pack(side="left", padx=5)
-        
-        ttk.Button(control_frame, text="📊 อัปเดตกราฟ", 
-                  command=self.update_chart_now).pack(side="left", padx=5)
-        
-        ttk.Checkbutton(control_frame, text="Auto Refresh (5s)", 
-                       variable=self.chart_auto_refresh,
-                       command=self.toggle_chart_refresh).pack(side="left", padx=5)
-        
-        # สถานะ
-        self.chart_status_label = ttk.Label(control_frame, text="", foreground="gray")
-        self.chart_status_label.pack(side="left", padx=10)
-        
-        # พื้นที่สำหรับกราฟ
-        self.chart_container = ttk.Frame(self.tab_chart)
-        self.chart_container.pack(fill="both", expand=True, padx=5, pady=5)
+        """สร้างแท็บแสดงกราฟ Real-time - เก็บไว้เพื่อ backward compatibility"""
+        pass
     
     def _create_stats_tab(self):
         """สร้างแท็บสถิติและความเสี่ยง"""
@@ -605,9 +699,12 @@ Volume Step: {symbol_info['volume_step']}
         self.bot_running.set(True)
         self.start_bot_btn.config(state="disabled")
         self.stop_bot_btn.config(state="normal")
-        self.bot_status_label.config(text="สถานะ: กำลังทำงาน...", foreground="green")
+        self.bot_status_label.config(text="สถานะ: 🟢 กำลังทำงาน", foreground="green")
         
         self.log_bot_message(f"🤖 เริ่มการทำงาน | โหมด: {mode_value} | กลยุทธ์: {self.selected_strategy.get()}", "info")
+        
+        # ซิงค์และอัปเดตกราฟ
+        self.sync_chart_symbol()
         
         # เริ่มลูปสแกน
         self._bot_scan_loop()
@@ -617,7 +714,7 @@ Volume Step: {symbol_info['volume_step']}
         self.bot_running.set(False)
         self.start_bot_btn.config(state="normal")
         self.stop_bot_btn.config(state="disabled")
-        self.bot_status_label.config(text="สถานะ: หยุดทำงาน", foreground="red")
+        self.bot_status_label.config(text="สถานะ: 🔴 หยุดทำงาน", foreground="red")
         
         self.log_bot_message("⏹ หยุดการทำงาน", "warning")
     
@@ -681,6 +778,9 @@ Volume Step: {symbol_info['volume_step']}
             # รีเฟรชตั๋วถ้าอยู่ในโหมด MANUAL_CONFIRM
             if get_execution_mode() == ExecutionMode.MANUAL_CONFIRM:
                 self.refresh_tickets()
+            
+            # อัปเดต Quick Stats
+            self._update_quick_stats()
     
     def log_bot_message(self, message: str, level: str = "info"):
         """บันทึก log ใน GUI"""
