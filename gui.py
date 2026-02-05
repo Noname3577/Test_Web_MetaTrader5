@@ -14,6 +14,8 @@ from risk_manager import RiskManager
 from execution_engine import ExecutionEngine
 from config import ExecutionMode, StrategyType, set_execution_mode, get_execution_mode, TradingConfig, StrategyConfigs
 from chart_visualizer import ChartVisualizer
+from performance_analytics import PerformanceAnalytics, TradeRecord
+from position_calculator import PositionCalculator
 
 
 class MT5DataViewer:
@@ -57,6 +59,12 @@ class MT5DataViewer:
         self.settings_vars = {}
         self.strategy_settings_vars = {}
         
+        # Performance Analytics
+        self.performance = PerformanceAnalytics()
+        
+        # Position Calculator
+        self.last_calculation = None
+        
         # สร้าง UI
         self.create_widgets()
     
@@ -76,7 +84,17 @@ class MT5DataViewer:
         self.notebook.add(self.tab_dashboard, text="📊 Trading Dashboard")
         self._create_dashboard_tab()
         
-        # แท็บ 3: Settings & Stats (รวมกัน)
+        # แท็บ 3: Position Calculator
+        self.tab_calculator = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_calculator, text="🧮 Position Calculator")
+        self._create_calculator_tab()
+        
+        # แท็บ 4: Performance Analytics
+        self.tab_performance = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_performance, text="📊 Performance")
+        self._create_performance_tab()
+        
+        # แท็บ 5: Settings & Stats (รวมกัน)
         self.tab_settings = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_settings, text="⚙️ Settings & Stats")
         self._create_settings_tab()
@@ -332,6 +350,409 @@ Kill Switch: {'🔴 ON' if self.risk_manager.kill_switch_active else '🟢 OFF'}
     def _create_chart_tab(self):
         """สร้างแท็บแสดงกราฟ Real-time - เก็บไว้เพื่อ backward compatibility"""
         pass
+    
+    def _create_calculator_tab(self):
+        """สร้างแท็บ Position Calculator"""
+        # Header
+        header_frame = ttk.Frame(self.tab_calculator)
+        header_frame.pack(fill="x", padx=10, pady=10)
+        
+        ttk.Label(header_frame, text="🧮 Position Size Calculator", 
+                 font=("Arial", 14, "bold")).pack(side="left")
+        
+        # PanedWindow แบ่งซ้าย-ขวา
+        paned = ttk.PanedWindow(self.tab_calculator, orient=tk.HORIZONTAL)
+        paned.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # === ส่วนซ้าย: Input ===
+        left_frame = ttk.LabelFrame(paned, text="📝 Input Parameters", padding=15)
+        paned.add(left_frame, weight=1)
+        
+        # Symbol
+        row = 0
+        ttk.Label(left_frame, text="Symbol:", font=("Arial", 10)).grid(
+            row=row, column=0, sticky="w", padx=5, pady=5)
+        self.calc_symbol_var = tk.StringVar(value="EURUSD")
+        ttk.Entry(left_frame, textvariable=self.calc_symbol_var, width=15).grid(
+            row=row, column=1, sticky="ew", padx=5, pady=5)
+        
+        # Direction
+        row += 1
+        ttk.Label(left_frame, text="Direction:", font=("Arial", 10)).grid(
+            row=row, column=0, sticky="w", padx=5, pady=5)
+        self.calc_direction_var = tk.StringVar(value="BUY")
+        direction_frame = ttk.Frame(left_frame)
+        direction_frame.grid(row=row, column=1, sticky="w", padx=5, pady=5)
+        ttk.Radiobutton(direction_frame, text="🟢 BUY", variable=self.calc_direction_var, 
+                       value="BUY").pack(side="left", padx=5)
+        ttk.Radiobutton(direction_frame, text="🔴 SELL", variable=self.calc_direction_var, 
+                       value="SELL").pack(side="left", padx=5)
+        
+        # Entry Price
+        row += 1
+        ttk.Label(left_frame, text="Entry Price:", font=("Arial", 10)).grid(
+            row=row, column=0, sticky="w", padx=5, pady=5)
+        self.calc_entry_var = tk.DoubleVar(value=1.10000)
+        ttk.Entry(left_frame, textvariable=self.calc_entry_var, width=15).grid(
+            row=row, column=1, sticky="ew", padx=5, pady=5)
+        
+        # Stop Loss
+        row += 1
+        ttk.Label(left_frame, text="Stop Loss:", font=("Arial", 10)).grid(
+            row=row, column=0, sticky="w", padx=5, pady=5)
+        self.calc_sl_var = tk.DoubleVar(value=1.09500)
+        ttk.Entry(left_frame, textvariable=self.calc_sl_var, width=15).grid(
+            row=row, column=1, sticky="ew", padx=5, pady=5)
+        
+        # Take Profit
+        row += 1
+        ttk.Label(left_frame, text="Take Profit:", font=("Arial", 10)).grid(
+            row=row, column=0, sticky="w", padx=5, pady=5)
+        self.calc_tp_var = tk.DoubleVar(value=1.11000)
+        ttk.Entry(left_frame, textvariable=self.calc_tp_var, width=15).grid(
+            row=row, column=1, sticky="ew", padx=5, pady=5)
+        
+        # Risk Percent
+        row += 1
+        ttk.Label(left_frame, text="Risk (%  of Equity):", font=("Arial", 10)).grid(
+            row=row, column=0, sticky="w", padx=5, pady=5)
+        self.calc_risk_var = tk.DoubleVar(value=TradingConfig.RISK_PER_TRADE_PERCENT)
+        ttk.Spinbox(left_frame, from_=0.1, to=10.0, increment=0.1,
+                   textvariable=self.calc_risk_var, width=13).grid(
+            row=row, column=1, sticky="ew", padx=5, pady=5)
+        
+        left_frame.columnconfigure(1, weight=1)
+        
+        # ปุ่มควบคุม
+        row += 1
+        btn_frame = ttk.Frame(left_frame)
+        btn_frame.grid(row=row, column=0, columnspan=2, pady=15)
+        
+        ttk.Button(btn_frame, text="🧮 Calculate", command=self.calculate_position,
+                  width=15).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="🔄 Clear", command=self.clear_calculator,
+                  width=15).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="⇄ Sync from Bot", command=self.sync_from_bot,
+                  width=15).pack(side="left", padx=5)
+        
+        # ข้อความช่วยเหลือ
+        help_frame = ttk.LabelFrame(left_frame, text="💡 Tips", padding=10)
+        help_frame.grid(row=row+1, column=0, columnspan=2, sticky="ew", padx=5, pady=10)
+        
+        help_text = """
+• กรอกข้อมูลการเทรดที่วางแผนไว้
+• กดปุ่ม Calculate เพื่อคำนวณ
+• ดูผลลัพธ์ด้านขวา
+• ใช้ Sync from Bot เพื่อดึงข้อมูลจาก Dashboard
+        """
+        ttk.Label(help_frame, text=help_text, font=("Arial", 9),
+                 justify="left").pack()
+        
+        # === ส่วนขวา: Results ===
+        right_frame = ttk.LabelFrame(paned, text="📊 Calculation Results", padding=10)
+        paned.add(right_frame, weight=1)
+        
+        self.calc_result_text = scrolledtext.ScrolledText(right_frame, 
+                                                          height=30, 
+                                                          wrap=tk.WORD,
+                                                          font=("Courier New", 10))
+        self.calc_result_text.pack(fill="both", expand=True)
+        
+        # แสดงข้อความเริ่มต้น
+        self.calc_result_text.insert(1.0, """
+        
+        
+        
+                🧮 Position Size Calculator
+        
+        กรอกข้อมูลด้านซ้ายแล้วกดปุ่ม Calculate
+        เพื่อคำนวณขนาด Position และ Risk/Reward
+        
+        
+        """)
+    
+    def calculate_position(self):
+        """คำนวณ Position Size"""
+        if not self.mt5_handler.is_connected:
+            messagebox.showerror("ข้อผิดพลาด", "กรุณาเชื่อมต่อ MT5 ก่อน")
+            return
+        
+        try:
+            # ดึงข้อมูล
+            symbol = self.calc_symbol_var.get()
+            direction = self.calc_direction_var.get()
+            entry = self.calc_entry_var.get()
+            sl = self.calc_sl_var.get()
+            tp = self.calc_tp_var.get()
+            risk_pct = self.calc_risk_var.get()
+            
+            # ดึงข้อมูลบัญชี
+            account_info = self.mt5_handler.get_account_info()
+            if not account_info:
+                messagebox.showerror("ข้อผิดพลาด", "ไม่สามารถดึงข้อมูลบัญชีได้")
+                return
+            
+            equity = account_info['equity']
+            
+            # ดึงข้อมูลตลาด
+            market_info = self.mt5_handler.get_symbol_info(symbol)
+            if not market_info:
+                messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถดึงข้อมูล {symbol} ได้")
+                return
+            
+            # คำนวณ
+            calc = PositionCalculator.calculate(
+                symbol=symbol,
+                direction=direction,
+                entry_price=entry,
+                stop_loss=sl,
+                take_profit=tp,
+                account_equity=equity,
+                market_info=market_info,
+                risk_percent=risk_pct
+            )
+            
+            self.last_calculation = calc
+            
+            # แสดงผล
+            result_text = PositionCalculator.format_calculation(calc)
+            self.calc_result_text.delete(1.0, tk.END)
+            self.calc_result_text.insert(1.0, result_text)
+            
+        except Exception as e:
+            messagebox.showerror("ข้อผิดพลาด", f"เกิดข้อผิดพลาดในการคำนวณ: {str(e)}")
+    
+    def clear_calculator(self):
+        """ล้างข้อมูล Calculator"""
+        self.calc_symbol_var.set("EURUSD")
+        self.calc_direction_var.set("BUY")
+        self.calc_entry_var.set(1.10000)
+        self.calc_sl_var.set(1.09500)
+        self.calc_tp_var.set(1.11000)
+        self.calc_risk_var.set(TradingConfig.RISK_PER_TRADE_PERCENT)
+        
+        self.calc_result_text.delete(1.0, tk.END)
+        self.calc_result_text.insert(1.0, "\n\n\n        Cleared! Ready for new calculation.\n\n")
+    
+    def sync_from_bot(self):
+        """ซิงค์ข้อมูลจาก Bot Symbol"""
+        if not self.mt5_handler.is_connected:
+            messagebox.showwarning("คำเตือน", "กรุณาเชื่อมต่อ MT5 ก่อน")
+            return
+        
+        symbol = self.bot_symbol_var.get()
+        self.calc_symbol_var.set(symbol)
+        
+        # ดึงราคาปัจจุบัน
+        symbol_info = self.mt5_handler.get_symbol_info(symbol)
+        if symbol_info:
+            bid = symbol_info['bid']
+            ask = symbol_info['ask']
+            
+            # ตั้งค่าเริ่มต้นโดยประมาณ
+            if self.calc_direction_var.get() == "BUY":
+                self.calc_entry_var.set(ask)
+                self.calc_sl_var.set(ask - 0.0050)  # -50 pips
+                self.calc_tp_var.set(ask + 0.0100)  # +100 pips
+            else:
+                self.calc_entry_var.set(bid)
+                self.calc_sl_var.set(bid + 0.0050)
+                self.calc_tp_var.set(bid - 0.0100)
+            
+            messagebox.showinfo("สำเร็จ", f"ซิงค์ข้อมูลจาก {symbol} แล้ว\nกรุณาปรับราคา SL/TP ตามต้องการ")
+    
+    def _create_performance_tab(self):
+        """สร้างแท็บ Performance Analytics"""
+        # Header
+        header_frame = ttk.Frame(self.tab_performance)
+        header_frame.pack(fill="x", padx=10, pady=10)
+        
+        ttk.Label(header_frame, text="📊 Performance Analytics", 
+                 font=("Arial", 14, "bold")).pack(side="left")
+        
+        # ปุ่มควบคุม
+        btn_frame = ttk.Frame(header_frame)
+        btn_frame.pack(side="right")
+        
+        ttk.Button(btn_frame, text="🔄 Refresh", command=self.refresh_performance,
+                  width=12).pack(side="left", padx=3)
+        ttk.Button(btn_frame, text="📥 Export CSV", command=self.export_performance,
+                  width=12).pack(side="left", padx=3)
+        ttk.Button(btn_frame, text="📄 Generate Report", command=self.show_performance_report,
+                  width=15).pack(side="left", padx=3)
+        
+        # Metrics Cards
+        cards_frame = ttk.Frame(self.tab_performance)
+        cards_frame.pack(fill="x", padx=10, pady=5)
+        
+        # Card 1: Summary
+        summary_card = ttk.LabelFrame(cards_frame, text="📈 Summary", padding=10)
+        summary_card.pack(side="left", fill="both", expand=True, padx=3)
+        
+        self.perf_summary_text = tk.Text(summary_card, height=8, wrap=tk.WORD,
+                                         font=("Courier New", 9))
+        self.perf_summary_text.pack(fill="both", expand=True)
+        
+        # Card 2: Profitability
+        profit_card = ttk.LabelFrame(cards_frame, text="💰 Profitability", padding=10)
+        profit_card.pack(side="left", fill="both", expand=True, padx=3)
+        
+        self.perf_profit_text = tk.Text(profit_card, height=8, wrap=tk.WORD,
+                                        font=("Courier New", 9))
+        self.perf_profit_text.pack(fill="both", expand=True)
+        
+        # Card 3: Risk Metrics
+        risk_card = ttk.LabelFrame(cards_frame, text="⚠️ Risk Metrics", padding=10)
+        risk_card.pack(side="left", fill="both", expand=True, padx=3)
+        
+        self.perf_risk_text = tk.Text(risk_card, height=8, wrap=tk.WORD,
+                                      font=("Courier New", 9))
+        self.perf_risk_text.pack(fill="both", expand=True)
+        
+        # Detailed Metrics
+        details_frame = ttk.LabelFrame(self.tab_performance, text="📋 Detailed Metrics", padding=10)
+        details_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        self.perf_details_text = scrolledtext.ScrolledText(details_frame, height=15, 
+                                                           wrap=tk.WORD,
+                                                           font=("Courier New", 9))
+        self.perf_details_text.pack(fill="both", expand=True)
+        
+        # อัปเดตครั้งแรก
+        self.refresh_performance()
+    
+    def refresh_performance(self):
+        """รีเฟรช Performance Analytics"""
+        metrics = self.performance.calculate_metrics()
+        
+        # Summary Card
+        summary = f"""Total Trades: {metrics['total_trades']}
+Win Rate:     {metrics['win_rate']:.1f}%
+Net Profit:   ${metrics['net_profit']:,.2f}
+ROI:          {metrics['roi']:.2f}%
+Expectancy:   ${metrics['expectancy']:.2f}"""
+        
+        self.perf_summary_text.delete(1.0, tk.END)
+        self.perf_summary_text.insert(1.0, summary)
+        
+        # Profitability Card
+        profit = f"""Winning Trades: {metrics['winning_trades']}
+Losing Trades:  {metrics['losing_trades']}
+Avg Win:        ${metrics['avg_win']:.2f}
+Avg Loss:       ${metrics['avg_loss']:.2f}
+Profit Factor:  {metrics['profit_factor']:.2f}
+Risk:Reward:    1:{metrics['risk_reward_ratio']:.2f}"""
+        
+        self.perf_profit_text.delete(1.0, tk.END)
+        self.perf_profit_text.insert(1.0, profit)
+        
+        # Risk Card
+        risk = f"""Max Drawdown:   ${metrics['max_drawdown']:,.2f}
+DD %:           {metrics['max_drawdown_pct']:.2f}%
+Sharpe Ratio:   {metrics['sharpe_ratio']:.2f}
+Sortino Ratio:  {metrics['sortino_ratio']:.2f}
+Max Streak Win: {metrics['max_consecutive_wins']}
+Max Streak Loss:{metrics['max_consecutive_losses']}"""
+        
+        self.perf_risk_text.delete(1.0, tk.END)
+        self.perf_risk_text.insert(1.0, risk)
+        
+        # Details
+        details = f"""{'═'*70}
+PERFORMANCE METRICS BREAKDOWN
+{'═'*70}
+
+💼 Account:
+  Initial Balance:  ${metrics['initial_balance']:,.2f}
+  Final Balance:    ${metrics['final_balance']:,.2f}
+  Net Profit:       ${metrics['net_profit']:,.2f}
+  ROI:              {metrics['roi']:.2f}%
+
+📊 Trading Activity:
+  Total Trades:     {metrics['total_trades']}
+  Winning Trades:   {metrics['winning_trades']} ({metrics['win_rate']:.1f}%)
+  Losing Trades:    {metrics['losing_trades']}
+  Avg Duration:     {metrics['avg_duration']}
+
+💰 Profit & Loss:
+  Total Profit:     ${metrics['total_profit']:,.2f}
+  Total Loss:       ${metrics['total_loss']:,.2f}
+  Net Profit:       ${metrics['net_profit']:,.2f}
+  Largest Win:      ${metrics['largest_win']:,.2f}
+  Largest Loss:     ${metrics['largest_loss']:,.2f}
+  Average Win:      ${metrics['avg_win']:,.2f}
+  Average Loss:     ${metrics['avg_loss']:,.2f}
+
+📈 Performance Ratios:
+  Profit Factor:    {metrics['profit_factor']:.2f}
+  Risk/Reward:      1:{metrics['risk_reward_ratio']:.2f}
+  Expectancy:       ${metrics['expectancy']:.2f}
+  Sharpe Ratio:     {metrics['sharpe_ratio']:.2f}
+  Sortino Ratio:    {metrics['sortino_ratio']:.2f}
+
+⚠️ Risk Metrics:
+  Max Drawdown:     ${metrics['max_drawdown']:,.2f} ({metrics['max_drawdown_pct']:.2f}%)
+  Max Streak Win:   {metrics['max_consecutive_wins']}
+  Max Streak Loss:  {metrics['max_consecutive_losses']}
+
+🎯 Strategy Breakdown:
+"""
+        
+        for strategy, profit in metrics['profit_by_strategy'].items():
+            winrate = metrics['winrate_by_strategy'].get(strategy, 0)
+            details += f"  {strategy:25} | Profit: ${profit:10,.2f} | Win Rate: {winrate:5.1f}%\n"
+        
+        details += f"\n{'═'*70}\n"
+        
+        self.perf_details_text.delete(1.0, tk.END)
+        self.perf_details_text.insert(1.0, details)
+    
+    def export_performance(self):
+        """Export Performance เป็น CSV"""
+        if not self.performance.trades:
+            messagebox.showinfo("แจ้งเตือน", "ยังไม่มีข้อมูลการเทรด")
+            return
+        
+        try:
+            from tkinter import filedialog
+            import csv
+            from datetime import datetime
+            
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                initialfile=f"performance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+            
+            if filename:
+                data = self.performance.export_to_dict()
+                
+                with open(filename, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.DictWriter(f, fieldnames=data[0].keys())
+                    writer.writeheader()
+                    writer.writerows(data)
+                
+                messagebox.showinfo("สำเร็จ", f"Export ไฟล์เรียบร้อย:\n{filename}")
+        
+        except Exception as e:
+            messagebox.showerror("ข้อผิดพลาด", f"ไม่สามารถ Export ได้: {str(e)}")
+    
+    def show_performance_report(self):
+        """แสดงรายงาน Performance แบบเต็ม"""
+        report = self.performance.generate_report()
+        
+        # สร้าง Dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Performance Analytics Report")
+        dialog.geometry("800x600")
+        
+        text_widget = scrolledtext.ScrolledText(dialog, wrap=tk.WORD, 
+                                                font=("Courier New", 9))
+        text_widget.pack(fill="both", expand=True, padx=10, pady=10)
+        text_widget.insert(1.0, report)
+        text_widget.config(state="disabled")
+        
+        ttk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=10)
     
     def _create_settings_tab(self):
         """สร้างแท็บรวม Settings และ Stats"""
