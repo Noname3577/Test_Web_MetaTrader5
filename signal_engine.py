@@ -10,7 +10,8 @@ from config import StrategyType, get_strategy_config
 from strategies import (
     SignalType, Strategy1_MACrossover, Strategy2_DonchianBreakout,
     Strategy3_BollingerBands, Strategy4_RSISwing, Strategy5_MACD,
-    Strategy6_ATRTrailing, Strategy7_Supertrend
+    Strategy6_ATRTrailing, Strategy7_Supertrend, Strategy8_UltimateAccuracy,
+    Strategy9_AIMultiFactor
 )
 
 
@@ -84,7 +85,9 @@ class SignalEngine:
             StrategyType.RSI_SWING: Strategy4_RSISwing,
             StrategyType.MACD: Strategy5_MACD,
             StrategyType.ATR_TRAILING: Strategy6_ATRTrailing,
-            StrategyType.SUPERTREND: Strategy7_Supertrend
+            StrategyType.SUPERTREND: Strategy7_Supertrend,
+            StrategyType.ULTIMATE_ACCURACY: Strategy8_UltimateAccuracy,
+            StrategyType.AI_MULTI_FACTOR: Strategy9_AIMultiFactor
         }
     
     def generate_signal(self, symbol: str, strategy_type: StrategyType,
@@ -197,6 +200,23 @@ class SignalEngine:
                 high, low, close,
                 atr_period=config.get('atr_period', 10),
                 atr_multiplier=config.get('atr_multiplier', 3.0)
+            )
+        
+        elif strategy_type == StrategyType.ULTIMATE_ACCURACY:
+            return strategy_class.generate_signal(
+                high, low, close,
+                volume=None,
+                atr_period=config.get('atr_period', 14),
+                atr_multiplier=config.get('atr_multiplier', 2.0),
+                min_accuracy=config.get('min_accuracy', 75.0)
+            )
+        
+        elif strategy_type == StrategyType.AI_MULTI_FACTOR:
+            return strategy_class.generate_signal(
+                high, low, close,
+                volume=None,
+                atr_period=config.get('atr_period', 14),
+                atr_multiplier=config.get('atr_multiplier', 2.0)
             )
         
         return {'signal': SignalType.NO_TRADE, 'reason': 'ไม่รองรับกลยุทธ์นี้'}

@@ -159,14 +159,14 @@ class MT5Handler:
             print(f"Error getting positions: {e}")
             return None
     
-    def get_historical_data(self, symbol: str, timeframe: str, num_bars: int = 100) -> Optional[Dict[str, Any]]:
+    def get_historical_data(self, symbol: str, timeframe: str, num_bars: int = 500) -> Optional[Dict[str, Any]]:
         """
         ดึงข้อมูลแท่งเทียนย้อนหลัง
         
         Args:
             symbol: ชื่อสัญลักษณ์
             timeframe: กรอบเวลา เช่น "D1", "H1", "M15"
-            num_bars: จำนวนแท่งที่ต้องการ
+            num_bars: จำนวนแท่งที่ต้องการ (default: 500 สำหรับ Ultimate Strategy)
             
         Returns:
             dict: {'high': [], 'low': [], 'close': [], 'open': [], 'time': [], 'volume': []}

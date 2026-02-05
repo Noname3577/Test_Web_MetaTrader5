@@ -23,6 +23,8 @@ class StrategyType(Enum):
     MACD = "macd"
     ATR_TRAILING = "atr_trailing"
     SUPERTREND = "supertrend"
+    ULTIMATE_ACCURACY = "ultimate_accuracy"  # 🆕 กลยุทธ์ Ultimate Accuracy
+    AI_MULTI_FACTOR = "ai_multi_factor"  # 🆕 กลยุทธ์ AI Multi-Factor
 
 
 class TradingConfig:
@@ -119,6 +121,20 @@ class StrategyConfigs:
         "atr_multiplier": 3.0,
         "risk_reward_ratio": 2.5
     }
+    
+    ULTIMATE_ACCURACY = {
+        "atr_period": 14,
+        "atr_multiplier": 2.0,
+        "min_accuracy": 75.0,  # ความแม่นยำขั้นต่ำที่ยอมรับ (%)
+        "risk_reward_ratio": 3.0  # RR สูงเพราะความมั่นใจสูง
+    }
+    
+    AI_MULTI_FACTOR = {
+        "atr_period": 14,
+        "atr_multiplier": 2.0,
+        "min_pattern_score": 50,  # คะแนนขั้นต่ำที่ยอมรับ
+        "risk_reward_ratio": 2.5
+    }
 
 
 class LogConfig:
@@ -145,7 +161,9 @@ def get_strategy_config(strategy_type: StrategyType) -> Dict[str, Any]:
         StrategyType.RSI_SWING: StrategyConfigs.RSI_SWING,
         StrategyType.MACD: StrategyConfigs.MACD,
         StrategyType.ATR_TRAILING: StrategyConfigs.ATR_TRAILING,
-        StrategyType.SUPERTREND: StrategyConfigs.SUPERTREND
+        StrategyType.SUPERTREND: StrategyConfigs.SUPERTREND,
+        StrategyType.ULTIMATE_ACCURACY: StrategyConfigs.ULTIMATE_ACCURACY,
+        StrategyType.AI_MULTI_FACTOR: StrategyConfigs.AI_MULTI_FACTOR
     }
     return config_map.get(strategy_type, {})
 

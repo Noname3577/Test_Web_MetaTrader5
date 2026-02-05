@@ -12,6 +12,7 @@ from mt5_handler import MT5Handler
 from signal_engine import SignalEngine, TradingSignal
 from risk_manager import RiskManager
 from execution_engine import ExecutionEngine
+from position_manager import PositionManager
 from config import ExecutionMode, StrategyType, set_execution_mode, get_execution_mode, TradingConfig, StrategyConfigs
 from chart_visualizer import ChartVisualizer
 from performance_analytics import PerformanceAnalytics, TradeRecord
@@ -32,6 +33,7 @@ class MT5DataViewer:
         # สร้าง Trading Engines
         self.signal_engine = SignalEngine()
         self.risk_manager = RiskManager()
+        self.position_manager = None  # จะสร้างหลังจากเชื่อมต่อ MT5
         self.exec_engine = None  # จะสร้างหลังจากเชื่อมต่อ MT5
 
         # ตัวแปรสำหรับการอัปเดตแบบ Real-time
@@ -49,6 +51,15 @@ class MT5DataViewer:
         self.selected_strategy = tk.StringVar(value=StrategyType.MA_CROSSOVER.value)
         self.selected_mode = tk.StringVar(value=ExecutionMode.DRY_RUN.value)
         self.selected_timeframe = tk.StringVar(value=TradingConfig.DEFAULT_TIMEFRAME)
+        
+        # Real-time Monitoring Mode
+        self.realtime_mode = tk.BooleanVar(value=True)  # เปิด Real-time โดยอัตโนมัติ
+        self.tick_count = 0
+        self.last_scan_time = None
+        
+        # Position Management
+        self.position_monitor_job = None
+        self.position_monitor_enabled = tk.BooleanVar(value=True)  # เปิด Position Monitor โดยอัตโนมัติ
         
         # Chart Visualizer
         self.chart_visualizer = None
@@ -171,9 +182,25 @@ class MT5DataViewer:
         
         control_frame.columnconfigure(1, weight=1)
         
+        # Real-time Mode Toggle
+        realtime_frame = ttk.Frame(control_frame)
+        realtime_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=5)
+        ttk.Checkbutton(realtime_frame, text="⚡ Real-time Mode (ตรวจสอบทุก 5 วินาที)",
+                       variable=self.realtime_mode).pack(anchor="w", padx=5)
+        ttk.Label(realtime_frame, text="ปิด = ตรวจสอบตาม Timeframe (ช้ากว่า)", 
+                 foreground="gray", font=("Arial", 7)).pack(anchor="w", padx=5)
+        
+        # Position Monitor Toggle
+        position_frame = ttk.Frame(control_frame)
+        position_frame.grid(row=5, column=0, columnspan=2, sticky="ew", pady=5)
+        ttk.Checkbutton(position_frame, text="🎯 Position Monitor (Trailing/BE/Partial)",
+                       variable=self.position_monitor_enabled).pack(anchor="w", padx=5)
+        ttk.Label(position_frame, text="จัดการ Position อัตโนมัติ: Trailing Stop, Break Even, Partial Close", 
+                 foreground="gray", font=("Arial", 7)).pack(anchor="w", padx=5)
+        
         # ปุ่มควบคุม
         btn_frame = ttk.Frame(control_frame)
-        btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=6, column=0, columnspan=2, pady=10)
         
         self.start_bot_btn = ttk.Button(btn_frame, text="▶ เริ่ม", 
                                         command=self.start_bot, state="disabled", width=10)
@@ -1385,11 +1412,18 @@ Kill Switch: {'🔴 เปิด' if self.risk_manager.kill_switch_active else '
             self.exec_engine = ExecutionEngine(self.mt5_handler, self.risk_manager)
             self.exec_engine.set_notification_callback(self.log_bot_message)
             
+            # สร้าง Position Manager
+            self.position_manager = PositionManager(self.mt5_handler)
+            
             self.display_account_info()
             
             # เริ่ม Real-time account update
             if self.account_auto_refresh.get():
                 self.start_account_refresh()
+            
+            # เริ่ม Position Monitor (ถ้าเปิดใช้งาน)
+            if self.position_monitor_enabled.get():
+                self.start_position_monitor()
             
             messagebox.showinfo("สำเร็จ", message)
 
@@ -1403,6 +1437,9 @@ Kill Switch: {'🔴 เปิด' if self.risk_manager.kill_switch_active else '
         # หยุด Bot ก่อน
         if self.bot_running.get():
             self.stop_bot()
+        
+        # หยุด Position Monitor
+        self.stop_position_monitor()
         
         # หยุด Chart refresh
         self.stop_chart_refresh()
@@ -1642,25 +1679,41 @@ Volume Step: {symbol_info['volume_step']}
     
     def _get_scan_interval(self) -> int:
         """
-        คำนวณช่วงเวลาสำหรับสแกนตาม Timeframe
+        คำนวณช่วงเวลาสำหรับสแกนตาม Timeframe และโหมด Real-time
         Returns: milliseconds
         """
+        # ถ้าเปิด Real-time Mode ให้สแกนทุก 5 วินาที (ไม่สนใจ Timeframe)
+        if self.realtime_mode.get():
+            return 5000  # 5 วินาที - ตรวจสอบตลาดแบบ Real-time!
+        
+        # ถ้าปิด Real-time ให้ใช้ Timeframe-based (ช้ากว่า)
         timeframe = self.selected_timeframe.get()
         
-        # กำหนดช่วงเวลาสแกนตาม timeframe
+        # กำหนดช่วงเวลาสแกนตาม timeframe (ลดเวลาลงให้เร็วขึ้น)
         interval_map = {
-            "M1": 60000,      # 1 นาที
-            "M5": 120000,     # 2 นาที
-            "M15": 300000,    # 5 นาที
-            "M30": 600000,    # 10 นาที
-            "H1": 900000,     # 15 นาที
-            "H4": 1800000,    # 30 นาที
-            "D1": 60000,      # 1 นาที (สำหรับ demo, ควรเป็น 1 ชม.)
-            "W1": 3600000,    # 1 ชม.
+            "M1": 10000,      # 10 วินาที (เร็วขึ้น)
+            "M5": 30000,      # 30 วินาที (เร็วขึ้น)
+            "M15": 60000,     # 1 นาที (เร็วขึ้น)
+            "M30": 120000,    # 2 นาที (เร็วขึ้น)
+            "H1": 180000,     # 3 นาที (เร็วขึ้น)
+            "H4": 300000,     # 5 นาที (เร็วขึ้น)
+            "D1": 600000,     # 10 นาที
+            "W1": 1800000,    # 30 นาที
             "MN1": 3600000    # 1 ชม.
         }
         
-        return interval_map.get(timeframe, 60000)  # default 1 นาที
+        return interval_map.get(timeframe, 10000)  # default 10 วินาที
+    
+    def _format_interval(self, ms: int) -> str:
+        """แปลง milliseconds เป็นข้อความที่อ่านง่าย"""
+        if ms < 1000:
+            return f"{ms} มิลลิวินาที"
+        elif ms < 60000:
+            return f"{ms // 1000} วินาที"
+        elif ms < 3600000:
+            return f"{ms // 60000} นาที"
+        else:
+            return f"{ms // 3600000} ชั่วโมง"
     
     def start_bot(self):
         """เริ่มการทำงานของ Bot"""
@@ -1678,12 +1731,21 @@ Volume Step: {symbol_info['volume_step']}
         self.bot_running.set(True)
         self.start_bot_btn.config(state="disabled")
         self.stop_bot_btn.config(state="normal")
-        self.bot_status_label.config(text="สถานะ: 🟢 กำลังทำงาน", foreground="green")
         
+        # แสดงสถานะ Real-time
+        mode_text = "⚡ Real-time" if self.realtime_mode.get() else "⏰ Timeframe-based"
+        self.bot_status_label.config(text=f"สถานะ: 🟢 กำลังทำงาน ({mode_text})", foreground="green")
+        
+        scan_interval = "5 วินาที" if self.realtime_mode.get() else self._format_interval(self._get_scan_interval())
         self.log_bot_message(
             f"🤖 เริ่มการทำงาน | โหมด: {mode_value} | กลยุทธ์: {self.selected_strategy.get()} | "
-            f"Timeframe: {self.selected_timeframe.get()}", "info"
+            f"Timeframe: {self.selected_timeframe.get()} | การสแกน: ทุก {scan_interval}", "info"
         )
+        
+        # Reset counters
+        self.tick_count = 0
+        from datetime import datetime
+        self.last_scan_time = datetime.now()
         
         # ซิงค์และอัปเดตกราฟ
         self.sync_chart_symbol()
@@ -1701,16 +1763,32 @@ Volume Step: {symbol_info['volume_step']}
         self.log_bot_message("⏹ หยุดการทำงาน", "warning")
     
     def _bot_scan_loop(self):
-        """วนลูปสแกนสัญญาณ"""
+        """วนลูปสแกนสัญญาณแบบ Real-time"""
         if not self.bot_running.get():
             return
         
         try:
+            # นับจำนวนการสแกน
+            self.tick_count += 1
+            
+            # อัปเดตเวลาล่าสุด
+            from datetime import datetime
+            self.last_scan_time = datetime.now()
+            
+            # แสดงสถานะ Real-time
+            mode_text = "⚡ Real-time" if self.realtime_mode.get() else "⏰ Timeframe"
+            self.bot_status_label.config(
+                text=f"สถานะ: 🟢 กำลังทำงาน ({mode_text}) | สแกนครั้งที่: {self.tick_count} | เวลา: {self.last_scan_time.strftime('%H:%M:%S')}",
+                foreground="green"
+            )
+            
+            # สแกนและประมวลผล
             self._scan_and_process()
+            
         except Exception as e:
             self.log_bot_message(f"❌ เกิดข้อผิดพลาด: {str(e)}", "error")
         
-        # วนลูปตามช่วงเวลาของ Timeframe
+        # วนลูปตามโหมดที่เลือก (Real-time = 5 วินาที หรือ Timeframe-based)
         interval = self._get_scan_interval()
         self.root.after(interval, self._bot_scan_loop)
     
@@ -1753,7 +1831,17 @@ Volume Step: {symbol_info['volume_step']}
         # สร้างสัญญาณ
         signal = self.signal_engine.generate_signal(symbol, strategy_type, high, low, close)
         
-        self.log_bot_message(f"📊 สัญญาณ: {signal.signal.value if hasattr(signal.signal, 'value') else str(signal.signal)} | {signal.reason}", "info")
+        # แสดง log พร้อมข้อมูล Real-time
+        signal_type = signal.signal.value if hasattr(signal.signal, 'value') else str(signal.signal)
+        price_now = close[-1]
+        
+        if signal_type == 'NO_TRADE':
+            # แสดงทุก 10 ครั้ง (ครั้งที่ 10, 20, 30...) เพื่อไม่ให้ log เยอะเกินไป
+            if self.tick_count == 1 or self.tick_count % 10 == 0:
+                self.log_bot_message(f"📊 สัญญาณ: {signal_type} | ราคา: {price_now:.5f} | {signal.reason}", "info")
+        else:
+            # แสดง BUY/SELL ทันที
+            self.log_bot_message(f"🎯 สัญญาณ: {signal_type} | ราคา: {price_now:.5f} | {signal.reason}", "success")
         
         # ส่งไปยัง Execution Engine
         if self.exec_engine:
@@ -2022,3 +2110,44 @@ Win Rate: {report['win_rate']:.2f}%
         
         # อัปเดตทุก 5 วินาที
         self.chart_refresh_job = self.root.after(5000, self._chart_refresh_loop)
+    
+    # ==================== Position Monitor Functions ====================
+    
+    def start_position_monitor(self):
+        """เริ่ม Position Monitor Loop"""
+        if not self.mt5_handler.is_connected or not self.position_manager:
+            return
+        
+        self.stop_position_monitor()
+        self.log_bot_message("🔍 เริ่ม Position Monitor (Trailing Stop, Break Even, Partial Close)", "info")
+        self._position_monitor_loop()
+    
+    def stop_position_monitor(self):
+        """หยุด Position Monitor Loop"""
+        if self.position_monitor_job:
+            try:
+                self.root.after_cancel(self.position_monitor_job)
+            except:
+                pass
+            self.position_monitor_job = None
+    
+    def _position_monitor_loop(self):
+        """วนลูป Monitor Positions ทุก 5 วินาที"""
+        if not self.position_monitor_enabled.get() or not self.mt5_handler.is_connected or not self.position_manager:
+            return
+        
+        try:
+            # ตรวจสอบและจัดการ positions
+            results = self.position_manager.monitor_all_positions()
+            
+            # แสดง log เฉพาะเมื่อมีการดำเนินการ
+            if results['trailing_updated'] > 0 or results['breakeven_moved'] > 0 or results['partial_closed'] > 0:
+                for msg in results['messages']:
+                    self.log_bot_message(msg, "success")
+            
+        except Exception as e:
+            pass  # ไม่แสดง error เพื่อไม่รบกวน
+        
+        # วนลูปทุก 5 วินาที
+        self.position_monitor_job = self.root.after(5000, self._position_monitor_loop)
+

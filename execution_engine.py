@@ -108,7 +108,9 @@ class ExecutionEngine:
         )
         
         if not approved:
-            self._notify(f"❌ สัญญาณถูกปฏิเสธ: {reason}", "warning")
+            # ไม่แสดง warning สำหรับ NO_TRADE เพราะเป็นเรื่องปกติ
+            if signal.signal.value != 'NO_TRADE':
+                self._notify(f"❌ สัญญาณถูกปฏิเสธ: {reason}", "warning")
             return {
                 'success': False,
                 'message': f'ไม่ผ่านการตรวจสอบความเสี่ยง: {reason}',
