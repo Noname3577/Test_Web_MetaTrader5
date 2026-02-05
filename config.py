@@ -158,3 +158,13 @@ def set_execution_mode(mode: ExecutionMode):
 def get_execution_mode() -> ExecutionMode:
     """ดึงโหมดการทำงานปัจจุบัน"""
     return TradingConfig.EXECUTION_MODE
+
+
+def set_timeframe(timeframe: str):
+    """เปลี่ยน Timeframe สำหรับการวิเคราะห์"""
+    TradingConfig.DEFAULT_TIMEFRAME = timeframe
+
+
+def get_timeframe() -> str:
+    """ดึง Timeframe ปัจจุบัน"""
+    return TradingConfig.DEFAULT_TIMEFRAME
